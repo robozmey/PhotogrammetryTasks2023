@@ -87,8 +87,6 @@ namespace {
                 0,   1,   movement[1],
                 0,   0,   rmse / sqrt(2)};
 
-//        std::cout << res;
-
         return res;
 
     }
@@ -129,7 +127,7 @@ namespace {
         }
         // https://en.wikipedia.org/wiki/Random_sample_consensus#Parameters
         // будет отличаться от случая с гомографией
-        const int n_trials = 100;
+        const int n_trials = 100000;
 
         const int n_samples = 8;
         uint64_t seed = 1;
@@ -165,7 +163,7 @@ namespace {
                 best_support = support;
                 best_F = F;
 
-                std::cout << "estimateFMatrixRANSAC : support: " << best_support << "/" << n_matches << std::endl;
+                std::cout << "estimateFMatrixRANSAC : support: " << best_support << "/" << n_matches << " trial_i: " << i_trial << std::endl;
                 infoF(F);
 
                 if (best_support == n_matches) {
@@ -197,7 +195,7 @@ cv::Matx33d phg::composeFMatrix(const cv::Matx34d &P0, const cv::Matx34d &P1)
 {
     // compute fundamental matrix from general cameras
     // Hartley & Zisserman (17.3 - p412)
-    
+
     cv::Matx33d F;
 
 #define det4(a, b, c, d) \
@@ -221,6 +219,6 @@ cv::Matx33d phg::composeFMatrix(const cv::Matx34d &P0, const cv::Matx34d &P1)
         }
 
 #undef det4
-    
+
     return F;
 }
