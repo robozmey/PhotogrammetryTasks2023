@@ -25,7 +25,7 @@
 #define ENABLE_BA                             1
 
 // TODO когда заработает при малом количестве фотографий - увеличьте это ограничение до 100 чтобы попробовать обработать все фотографии (если же успешно будут отрабаывать только N фотографий - отправьте PR выставив здесь это N)
-#define NIMGS_LIMIT                           10 // сколько фотографий обрабатывать (можно выставить меньше чтобы ускорить экспериментирование, или в случае если весь датасет не выравнивается)
+#define NIMGS_LIMIT                           15 // сколько фотографий обрабатывать (можно выставить меньше чтобы ускорить экспериментирование, или в случае если весь датасет не выравнивается)
 #define INTRINSICS_CALIBRATION_MIN_IMGS       5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длину и т.п.) - из соображений что "пока камер мало - наблюдений может быть недостаточно чтобы не сойтись к ложной внутренней модели камеры"
 
 #define ENABLE_INSTRINSICS_K1_K2              1 // TODO учитывать ли радиальную дисторсию - коэффициенты k1, k2 попробуйте с ним и и без saharov32, заметна ли разница?
@@ -684,7 +684,21 @@ void runBA(std::vector<vector3d> &tie_points,
             if (ENABLE_OUTLIERS_FILTRATION_COLINEAR && ENABLE_BA) {
                 // TODO выполните проверку случая когда два луча почти параллельны, чтобы не было странных точек улетающих на бесконечность (например чтобы угол был хотя бы 2.5 градуса)
 //                 should_be_disabled = true;
+                for (size_t cj = 0; cj < track.img_kpt_pairs.size(); ++cj) {
+                    if (ci == cj) continue;
 
+                    int camera_jd = track.img_kpt_pairs[cj].first;
+
+                    matrix3d R2; vector3d camera_origin2;
+                    phg::decomposeUndistortedPMatrix(R2, camera_origin2, cameras[camera_jd]);
+
+                    vector3d d1 = camera_origin - track_point;
+                    vector3d d2 = camera_origin2 - track_point;
+                    if (abs(d1.dot(d2)) < 0.1 * (cv::norm(d1) * cv::norm(d2))) {
+                        should_be_disabled = true;
+                        break;
+                    }
+                }
             }
 
             {
