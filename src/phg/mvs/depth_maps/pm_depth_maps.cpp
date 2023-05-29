@@ -52,9 +52,9 @@ namespace phg {
     {
         double depth = pixel[2]; // на самом деле это не глубина, это координата по оси +Z (вдоль которой смотрит камера в ее локальной системе координат)
 
-        vector3d local_point; // TODO 102 пустите луч pixel из calibration а затем возьмите ан нем точку у которой по оси +Z координата=depth
+        vector3d local_point = calibration.unproject({pixel[0], pixel[1]}) * depth; // TODO 102 пустите луч pixel из calibration а затем возьмите ан нем точку у которой по оси +Z координата=depth
 
-        vector3d global_point; // TODO 103 переведите точку из локальной системы в глобальную
+        vector3d global_point = PtoWorld * homogenize(local_point); // TODO 103 переведите точку из локальной системы в глобальную
 
         return global_point;
     }
@@ -116,14 +116,16 @@ namespace phg {
                     n0 = normal_map.at<vector3f>(j, i);
 
                     // 2) случайной пертурбации текущей гипотезы (мутация и уточнение того что уже смогли найти)
-                    dp = r.nextf(d0 * 0.5f, d0 * 1.5); // TODO 104: сделайте так чтобы отклонение было тем меньше, чем номер итерации ближе к NITERATIONS, улучшило ли это результат?
+                    float d = (1.f - iter / NITERATIONS) / 2.f;
+                    dp = r.nextf(d0 * (1 - d), d0 * (1 - d)); // TODO 104: сделайте так чтобы отклонение было тем меньше, чем номер итерации ближе к NITERATIONS, улучшило ли это результат?
                     np = cv::normalize(n0 + randomNormalObservedFromCamera(cameras_RtoWorld[ref_cam], r) * 0.5); // TODO 105: сделайте так чтобы отклонение было тем меньше, чем номер итерации ближе к NITERATIONS, улучшило ли это результат?
 
                     dp = std::max(ref_depth_min, std::min(ref_depth_max, dp));
 
                     // 3) новой случайной гипотезы из фрустума поиска (новые идеи, вечный поиск во всем пространстве)
                     // TODO 106: создайте случайную гипотезу dr+nr, вам поможет:
-                    //  - r.nextf(...)
+                    dr = r.nextf(ref_depth_min, ref_depth_max);
+                    nr = randomNormalObservedFromCamera(cameras_RtoWorld[ref_cam], r);
                     //  - ref_depth_min, ref_depth_max
                     //  - randomNormalObservedFromCamera - поможет создать нормаль которая гарантированно смотрит на нас 
                 }
@@ -352,6 +354,7 @@ namespace phg {
                 ptrdiff_t v = y;
 
                 // TODO 108: добавьте проверку "попали ли мы в камеру номер neighb_cam?" если не попали - возвращаем NO_COST
+                if ((u < 0) || (u >= width) || (v < 0) || (v >= height)) return NO_COST;
 
                 float intensity = cameras_imgs_grey[neighb_cam].at<unsigned char>(v, u) / 255.0f;
                 patch1.push_back(intensity);
@@ -364,18 +367,28 @@ namespace phg {
         size_t n = patch0.size();
         float mean0 = 0.0f;
         float mean1 = 0.0f;
-        // ...
+        float var0 = 0.0f;
+        float var1 = 0.0f;
         for (size_t k = 0; k < n; ++k) {
             float a = patch0[k];
             float b = patch1[k];
             mean0 += a;
             mean1 += b;
-            // ...
+            var0 += a * a;
+            var1 += b * b;
         }
         mean0 /= n;
         mean1 /= n;
-        // ...
+        var0 /= n;
+        var1 /= n;
+
         float zncc = 0.0f;
+        for (size_t k = 0; k < n; ++k) {
+            zncc += (patch0[k] - mean0) * (patch1[k] - mean1);
+        }
+
+        float q = (var0 - mean0*mean0) * (var1 - mean1*mean1);
+        if (std::abs(q) < 1e-5) return NO_COST;
 
         // ZNCC в диапазоне [-1; 1], 1: идеальное совпадение, -1: ничего общего
         rassert(zncc == zncc, 23141241210380); // проверяем что не nan
@@ -399,13 +412,17 @@ namespace phg {
 
         float best_cost = costs[0];
 
-        float cost_sum = best_cost;
-        float cost_w = 1.0f;
+        float cost_sum = 0;
+        float cost_w = costs.size();
 
         // TODO 110 реализуйте какое-то "усреднение cost-ов по всем соседям", с ограничением что участвуют только COSTS_BEST_K_LIMIT лучших
         // TODO 111 добавьте к этому усреднению еще одно ограничение: если cost больше чем best_cost*COSTS_K_RATIO - то такой cost подозрительно плохой и мы его не хотим учитывать (вероятно occlusion)
         // TODO 112 а что если в пикселе occlusion, но best_cost - большой и поэтому отсечение по best_cost*COSTS_K_RATIO не срабатывает? можно ли это отсечение как-то выправить для такого случая?
         // TODO 207 а что если добавить какой-нибудь бонус в случае если больше чем Х камер засчиталось? улучшается/ухудшается ли от этого что-то на herzjezu25? а при большем числе фотографий
+        for (auto cost : costs) {
+            if (cost <= best_cost * COSTS_K_RATIO)
+                cost_sum += cost;
+        }
 
         float avg_cost = cost_sum / cost_w;
         return avg_cost;
